@@ -96,7 +96,7 @@ class MemStackRuntime:
                 continue
             source_ids = [str(item) for item in update.get("source_ids", [])]
             if source_ids and set(source_ids).issubset({item["source_id"] for item in normalized}):
-                records.append(MemoryRecord(content=update["content"], layer=MemoryLayer.L2, importance=0.9, confidence=float(update.get("confidence", 1.0)), sources=[SourceRef(source_id=item) for item in source_ids], metadata={"user_id": user_id, "session_id": session_id}))
+                records.append(MemoryRecord(content=update["content"], layer=MemoryLayer.L2, importance=0.9, confidence=float(update.get("confidence", 1.0)), sources=[SourceRef(source_id=item) for item in source_ids], metadata={"kind": "profile", "user_id": user_id, "session_id": session_id}))
         vectors = self.models.embeddings.embed([record.content for record in records])
         if len(vectors) != len(records):
             raise ProviderError("embedding provider did not return one vector per MemStack record")

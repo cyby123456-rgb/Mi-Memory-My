@@ -64,6 +64,12 @@ class LiteMemStoreTests(unittest.TestCase):
         self.assertIn(evidence.id, [item.id for item in routed])
         self.assertIn("SUMMARY_END", (self.root / "user" / "style.md").read_text(encoding="utf-8"))
 
+    def test_replacing_a_singleton_removes_its_stale_index_owner(self) -> None:
+        first = self.store.put(MemoryRecord(content="Old profile", layer=MemoryLayer.L2, metadata={"kind": "profile"}))
+        second = self.store.put(MemoryRecord(content="New profile", layer=MemoryLayer.L2, metadata={"kind": "profile"}))
+        self.assertIsNone(self.store.get(first.id))
+        self.assertEqual(self.store.get(second.id).content, "New profile")
+
 
 if __name__ == "__main__":
     unittest.main()

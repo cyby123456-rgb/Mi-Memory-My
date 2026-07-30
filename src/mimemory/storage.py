@@ -106,6 +106,11 @@ class LiteMemStore:
         index = self._read_index()
         old_relative = Path(index[record.id]) if record.id in index else None
         relative = self._relative_path(record)
+        # A singleton path must have exactly one index owner after replacement.
+        if relative in {Path("user/profile.md"), Path("user/style.md")}:
+            for existing_id, existing_path in list(index.items()):
+                if Path(existing_path) == relative and existing_id != record.id:
+                    index.pop(existing_id)
         self._atomic_write(self.root / relative, self._serialize(record))
         if old_relative and old_relative != relative:
             old_path = self.root / old_relative
