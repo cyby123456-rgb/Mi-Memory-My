@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from mimemory.benchmarks import BenchmarkCase, BenchmarkHarness, LoCoMoAdapter
+from mimemory.benchmarks import BenchmarkCase, BenchmarkHarness, LoCoMoAdapter, LongMemEvalAdapter
 from mimemory.config import default_strategy
 from mimemory.memstack import MemStackModels, MemStackRuntime
 from mimemory.storage import LiteMemStore
@@ -51,6 +51,15 @@ class BenchmarkTests(unittest.TestCase):
             self.assertTrue(results[0].correct); self.assertTrue(output.exists())
             report = harness.paired_report(results, results)
             self.assertEqual(report["delta"], 0.0)
+
+    def test_longmemeval_adapter_preserves_session_order_for_add_requests(self):
+        with TemporaryDirectory() as root:
+            path = Path(root) / "longmemeval_s.json"
+            path.write_text(json.dumps([{"question_id": "q1", "question_type": "temporal-reasoning", "question": "Where?", "answer": "car", "haystack_session_ids": ["s1", "s2"], "haystack_dates": ["2024-01-01T00:00:00Z", "2024-01-02T00:00:00Z"], "haystack_sessions": [[{"role": "user", "content": "Bag is at home"}], [{"role": "assistant", "content": "Bag is in car"}]], "answer_session_ids": ["s2"]}]), encoding="utf-8")
+            adapter = LongMemEvalAdapter()
+            requests = adapter.add_requests(adapter.load(path)[0])
+            self.assertEqual([request["session_id"] for request in requests], ["s1", "s2"])
+            self.assertEqual(requests[1]["messages"][0]["timestamp"], 1704153600000)
 
 
 if __name__ == "__main__": unittest.main()

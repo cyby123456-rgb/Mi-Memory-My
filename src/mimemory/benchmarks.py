@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import UTC, datetime
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Protocol
@@ -99,7 +100,65 @@ class PublicDatasetAdapter:
 
 class LoCoMoAdapter(PublicDatasetAdapter): name = "locomo"
 class PersonaMemV2Adapter(PublicDatasetAdapter): name = "personamem_v2"
-class LongMemEvalAdapter(PublicDatasetAdapter): name = "longmemeval"
+class LongMemEvalAdapter(PublicDatasetAdapter):
+    """Adapter for the official LongMemEval-S/M session schema.
+
+    A history session maps to one synchronous Add request.  A question is
+    searched only after its ordered session history has been admitted.
+    """
+    name = "longmemeval"
+
+    @staticmethod
+    def _timestamp_milliseconds(value: Any) -> int | None:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return int(value if value > 10_000_000_000 else value * 1000)
+        if not isinstance(value, str):
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return int(parsed.timestamp() * 1000)
+
+    def load(self, path: str | Path) -> list[BenchmarkCase]:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+        if not isinstance(raw, list):
+            raise ValueError("LongMemEval input must be an array")
+        cases: list[BenchmarkCase] = []
+        for row in raw:
+            if not isinstance(row, dict):
+                continue
+            question_id = row.get("question_id")
+            sessions, session_ids, dates = row.get("haystack_sessions"), row.get("haystack_session_ids"), row.get("haystack_dates")
+            if not isinstance(question_id, str) or not isinstance(sessions, list) or not isinstance(session_ids, list) or not isinstance(dates, list):
+                raise ValueError("LongMemEval record is missing question/session fields")
+            messages: list[dict[str, Any]] = []
+            for session_index, session in enumerate(sessions):
+                if not isinstance(session, list):
+                    raise ValueError("LongMemEval session must be a turn array")
+                session_id = str(session_ids[session_index]) if session_index < len(session_ids) else str(session_index)
+                timestamp = self._timestamp_milliseconds(dates[session_index]) if session_index < len(dates) else None
+                for turn_index, turn in enumerate(session):
+                    if not isinstance(turn, dict) or turn.get("role") not in {"user", "assistant"} or not isinstance(turn.get("content"), str):
+                        raise ValueError("LongMemEval turn must have user/assistant role and content")
+                    messages.append({"source_id": f"{session_id}:{turn_index}", "role": turn["role"], "content": turn["content"], "timestamp": timestamp, "session_id": session_id})
+            cases.append(BenchmarkCase(case_id=question_id, user_id=question_id, session_id=question_id, messages=messages,
+                query=str(row.get("question", "")), answer=str(row.get("answer", "")),
+                evidence_source_ids=[str(item) for item in row.get("answer_session_ids", []) if isinstance(item, (str, int))],
+                category=str(row.get("question_type", "unknown"))))
+        return cases
+
+    def add_requests(self, case: BenchmarkCase) -> list[dict[str, Any]]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for message in case.messages:
+            grouped.setdefault(str(message["session_id"]), []).append(message)
+        requests: list[dict[str, Any]] = []
+        for sequence, (session_id, messages) in enumerate(grouped.items()):
+            requests.append({"request_id": f"longmemeval:{case.case_id}:{sequence}", "user_id": case.user_id,
+                "session_id": session_id, "messages": [{"role": item["role"], "content": item["content"], "timestamp": item["timestamp"]} for item in messages]})
+        return requests
 
 
 def normalize_answer(value: str) -> str:
