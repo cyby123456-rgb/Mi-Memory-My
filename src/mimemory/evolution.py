@@ -39,6 +39,7 @@ class E2MEND:
         self.reputation: dict[str, float] = {}
         self.hypotheses: dict[str, dict[str, float]] = {}
         self.artifact_path = Path(artifact_path) if artifact_path else manager.root / "e2mend-artifacts.jsonl"
+        self.pending_path = manager.root / "pending-champions.jsonl"
         self.drift_tolerance = drift_tolerance
 
     def _record(self, outcome: CandidateOutcome, *, changes: dict[str, Any], digest: dict[str, Any]) -> CandidateOutcome:
@@ -46,6 +47,10 @@ class E2MEND:
         with self.artifact_path.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps({"outcome": asdict(outcome), "changes": changes, "digest": digest}, ensure_ascii=False, sort_keys=True) + "\n")
         return outcome
+
+    def _pending(self, candidate: dict[str, Any], report: EvaluationReport, changes: dict[str, Any]) -> None:
+        with self.pending_path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps({"candidate": candidate, "report": asdict(report), "changes": changes, "status": "pending_champion"}, ensure_ascii=False, sort_keys=True) + "\n")
 
     def ucb1(self, path: str, *, total_trials: int) -> float:
         node = self.hypotheses.get(path, {"trials": 0.0, "reward": 0.0})
@@ -60,7 +65,7 @@ class E2MEND:
         return {"root_cause_counts": counts, "signals": [signal.to_dict() for signal in signals]}
 
     def plan(self, digest: dict[str, Any]) -> dict[str, Any]:
-        response = json_from_completion(self.planner.complete([{"role": "system", "content": "You are E2MEND Planner. Select only declared mutable paths and numeric values. Return JSON {\"changes\": {path: number}}."}, {"role": "user", "content": str({"digest": digest, "reputation": self.reputation})}]))
+        response = json_from_completion(self.planner.complete([{"role": "system", "content": "You are E2MEND Planner. Select only declared mutable schema paths and legal typed values. Return JSON {\"changes\": {path: value}}."}, {"role": "user", "content": str({"digest": digest, "reputation": self.reputation})}]))
         changes = response.get("changes")
         if not isinstance(changes, dict) or not changes:
             raise ProviderError("E2MEND planner must return a non-empty changes object")
@@ -100,6 +105,10 @@ class E2MEND:
             self.reputation[direction[0]] = self.reputation.get(direction[0], 0.0) - 0.5
             return self._record(CandidateOutcome(candidate_id, "rejected", "critic", str(review.get("reason", "critic rejected")), probe.delta, {"structure": True, "replay": True, "critic": False}), changes=changes, digest=digest)
         full = evaluate(candidate, False)
+        if not full.full_evaluation_available:
+            self._pending(candidate, full, changes)
+            return self._record(CandidateOutcome(candidate_id, "pending", "full_budget", "awaiting next-round full confirmation", full.delta,
+                {"structure": True, "replay": True, "critic": True, "full_budget": False}), changes=changes, digest=digest)
         decision: GateDecision = self.manager.evaluate(candidate, full)
         if not decision.accepted:
             self.reverted_directions.add(direction)

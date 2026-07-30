@@ -45,7 +45,12 @@ class StrategyManagerTests(unittest.TestCase):
         self.assertEqual(restored["artifact_id"], "default")
         self.assertEqual(restored["retrieval"]["top_k"], 12)
 
+    def test_versioned_prompt_and_feature_mutations_obey_integrity_gate(self) -> None:
+        candidate = self.manager.propose({"features.hypothesis_tree": True, "extraction.prompt_template": "v2: preserve source_ids and return JSON facts"})
+        self.assertTrue(candidate["features"]["hypothesis_tree"])
+        with self.assertRaisesRegex(ValueError, "prompt-integrity"):
+            self.manager.propose({"extraction.prompt_template": "v2: free form"})
+
 
 if __name__ == "__main__":
     unittest.main()
-

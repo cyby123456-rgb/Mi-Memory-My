@@ -30,7 +30,20 @@ ALLOWED_PATHS = {
     "lifecycle.access_boost": (0.0, 1.0),
     "lifecycle.skip_penalty": (0.0, 1.0),
     "lifecycle.archive_threshold": (0.0, 1.0),
+    "lifecycle.source_window": (1, 256),
 }
+ALLOWED_ENUMS = {
+    "retrieval.intent_override": {"auto", "temporal", "entity", "profile"},
+    "lifecycle.compression_policy": {"summary_only", "merge_supported", "lossless"},
+    "presentation.output_format": {"evidence_first", "concise", "structured"},
+}
+ALLOWED_BOOLEANS = {
+    "features.failure_correction",
+    "features.conflict_handling",
+    "features.conditional_memory_triggers",
+    "features.hypothesis_tree",
+}
+PROMPT_MARKERS = {"extraction.prompt_template": ("source_ids", "JSON")}
 
 
 @dataclass(slots=True)
@@ -40,6 +53,7 @@ class EvaluationReport:
     category_deltas: dict[str, float] = field(default_factory=dict)
     stable_correct_regressions: int = 0
     replay_passed: bool = True
+    full_evaluation_available: bool = True
 
     @property
     def delta(self) -> float:
@@ -108,13 +122,26 @@ class StrategyManager:
 
     def _validate_value(self, path: str, value: Any) -> None:
         bounds = ALLOWED_PATHS.get(path)
-        if bounds is None:
-            raise ValueError(f"out-of-scope strategy path: {path}")
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise ValueError(f"strategy value must be numeric: {path}")
-        low, high = bounds
-        if not low <= value <= high:
-            raise ValueError(f"strategy value for {path} must be in [{low}, {high}]")
+        if bounds is not None:
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"strategy value must be numeric: {path}")
+            low, high = bounds
+            if not low <= value <= high:
+                raise ValueError(f"strategy value for {path} must be in [{low}, {high}]")
+            return
+        if path in ALLOWED_ENUMS:
+            if value not in ALLOWED_ENUMS[path]:
+                raise ValueError(f"strategy value is not legal for {path}")
+            return
+        if path in ALLOWED_BOOLEANS:
+            if not isinstance(value, bool):
+                raise ValueError(f"strategy value must be boolean: {path}")
+            return
+        if path in PROMPT_MARKERS:
+            if not isinstance(value, str) or any(marker not in value for marker in PROMPT_MARKERS[path]):
+                raise ValueError(f"prompt-integrity gate failed for {path}")
+            return
+        raise ValueError(f"out-of-scope strategy path: {path}")
 
     def evaluate(
         self,

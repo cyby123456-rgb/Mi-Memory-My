@@ -205,16 +205,19 @@ class LiteMemStore:
                       key=lambda record: order[record.metadata["kind"]])
 
     @staticmethod
-    def importance_score(record: MemoryRecord, *, now: datetime | None = None) -> float:
-        """Eq. 21's observable ingredients: importance, recency and access, penalised by skips."""
+    def importance_score(record: MemoryRecord, *, now: datetime | None = None, tau_hours: float = 4320.0,
+                         access_boost: float = 0.02, skip_penalty: float = 0.01) -> float:
+        """Eq. 21: decayed stored importance plus positive access and negative skip feedback."""
         now = now or datetime.now(UTC)
         try:
             age_hours = max(0.0, (now - datetime.fromisoformat(record.last_accessed_at)).total_seconds() / 3600)
         except ValueError:
             age_hours = 0.0
-        return record.importance * math.exp(-age_hours / 720.0) + 0.02 * record.access_count - 0.01 * record.skip_count
+        return record.importance * math.exp(-age_hours / tau_hours) + access_boost * record.access_count - skip_penalty * record.skip_count
 
-    def route_file_native(self, query: str, *, daily_line_window: int = 40, limit: int = 12) -> list[MemoryRecord]:
+    def route_file_native(self, query: str, *, daily_line_window: int = 40, limit: int = 12,
+                          recency_tau_hours: float = 720.0, importance_tau_hours: float = 4320.0,
+                          weights: tuple[float, float, float, float] = (1.0, 1.0, 1.0, 1.0)) -> list[MemoryRecord]:
         """File-native Eq. 20 router: grep-like matching, lazy daily windows, then priority context."""
         terms = {term for term in re.findall(r"\w+", query.casefold()) if term}
         scored: list[tuple[float, MemoryRecord]] = []
@@ -222,7 +225,14 @@ class LiteMemStore:
             haystack = f"{record.title} {record.summary} {record.content}".casefold()
             lexical = sum(term in haystack for term in terms)
             if lexical:
-                scored.append((lexical + self.importance_score(record), record))
+                try:
+                    age_hours = max(0.0, (datetime.now(UTC) - datetime.fromisoformat(record.last_accessed_at)).total_seconds() / 3600)
+                except ValueError:
+                    age_hours = 0.0
+                importance = self.importance_score(record, tau_hours=importance_tau_hours)
+                # Eq. 20: lexical relevance, decayed importance, recency and access remain distinct terms.
+                score = weights[0] * lexical + weights[1] * importance + weights[2] * math.exp(-age_hours / recency_tau_hours) + weights[3] * record.access_count
+                scored.append((score, record))
         # Daily files are read only around matching lines, never as whole logs.
         for daily in (self.root / "daily").glob("*.md"):
             lines = daily.read_text(encoding="utf-8").splitlines()

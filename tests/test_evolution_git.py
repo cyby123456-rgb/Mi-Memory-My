@@ -42,6 +42,14 @@ class EvolutionAndGitTests(unittest.TestCase):
             self.assertTrue(engine.rollback_on_drift(0.7, 0.9))
             self.assertEqual(manager.current()["artifact_id"], "default")
 
+    def test_e2mend_stages_promising_candidate_without_full_budget(self):
+        with TemporaryDirectory() as root:
+            path = Path(root) / "strategies"
+            engine = E2MEND(StrategyManager(path), FakeChat({"changes": {"retrieval.top_k": 16}}), FakeChat({"decision": "actionable", "reason": "ok"}))
+            outcome = engine.run_round([DiagnosticSignal("q", [], [], [], "retrieval", "retrieval_gap")], lambda candidate, probe: EvaluationReport(0.8, 0.82, full_evaluation_available=probe))
+            self.assertEqual(outcome.decision, "pending")
+            self.assertTrue((path / "pending-champions.jsonl").exists())
+
     def test_litemem_git_provenance_commits_and_diffs(self):
         with TemporaryDirectory() as root:
             path = Path(root) / "memory.md"; path.write_text("one\n", encoding="utf-8")
