@@ -252,7 +252,6 @@ class PaperLeaderboardAdapter:
     def __init__(self, runtime_factory: Any) -> None:
         self.runtime_factory = runtime_factory
         self._runtimes: dict[str, MemStackRuntime] = {}
-        self._receipts: set[tuple[str, str]] = set()
         self._lock = threading.RLock()
 
     def _runtime(self, user_id: str) -> MemStackRuntime:
@@ -276,10 +275,18 @@ class PaperLeaderboardAdapter:
             if role not in {"user", "assistant"}:
                 raise ContractError(f"messages[{index}].role must be user or assistant")
             normalized.append({"source_id": f"{request_id}:{index}", "role": role, "content": content, "timestamp": _timestamp_from_milliseconds(message.get("timestamp"))})
+        canonical = json.dumps({"session_id": session_id, "messages": normalized}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        payload_digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         with self._lock:
-            if (user_id, request_id) not in self._receipts:
-                self._runtime(user_id).ingest(normalized, user_id=user_id, session_id=session_id)
-                self._receipts.add((user_id, request_id))
+            runtime = self._runtime(user_id)
+            receipt = runtime.store.root / "requests" / f"{hashlib.sha256(request_id.encode()).hexdigest()}.json"
+            if receipt.exists():
+                previous = json.loads(receipt.read_text(encoding="utf-8"))
+                if previous.get("payload_digest") != payload_digest:
+                    raise ContractError("request_id was already used with different messages")
+            else:
+                runtime.ingest(normalized, user_id=user_id, session_id=session_id)
+                _atomic_json(receipt, {"request_id": request_id, "payload_digest": payload_digest, "completed_at": utc_now()})
         return {"success": True, "request_id": request_id, "user_id": user_id, "session_id": session_id}
 
     def search(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -288,8 +295,13 @@ class PaperLeaderboardAdapter:
         top_k = payload.get("top_k")
         if isinstance(top_k, bool) or not isinstance(top_k, int) or top_k < 1:
             raise ContractError("top_k must be a positive integer")
+        options = payload.get("options", [])
+        if options is None:
+            options = []
+        if not isinstance(options, list) or any(not isinstance(item, str) for item in options):
+            raise ContractError("options must be an array of strings")
         with self._lock:
-            bundle = self._runtime(user_id).retrieve(query, user_id=user_id)
+            bundle = self._runtime(user_id).retrieve(query + ("\n" + "\n".join(options) if options else ""), user_id=user_id)
         return {"data": [{"id": hit.record.id, "content": hit.record.content, "score": hit.score, "created_at": hit.record.created_at} for hit in bundle.evidence[:top_k]]}
 
 

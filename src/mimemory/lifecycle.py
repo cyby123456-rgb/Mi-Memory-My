@@ -11,7 +11,7 @@ from .storage import LiteMemStore
 
 
 CONSOLIDATION_PROMPT = """You are LiteMem idle consolidation. Given active memory summaries and raw logs,
-return JSON only: {"actions": [{"action": "archive|deprecate|profile", "id": str, "content": str|null}]}. Every action must cite an input id. Do not remove correction or forget constraints."""
+return JSON only: {"actions": [{"action": "archive|deprecate|profile|promote|correction", "id": str, "content": str|null}]}. Every action must cite an input id. Do not remove correction or forget constraints."""
 
 
 class LiteMemLifecycle:
@@ -33,7 +33,11 @@ class LiteMemLifecycle:
             if action.get("action") == "archive": record.status = MemoryStatus.ARCHIVED
             elif action.get("action") == "deprecate": record.status = MemoryStatus.DEPRECATED
             elif action.get("action") == "profile" and isinstance(action.get("content"), str):
-                self.store.put(MemoryRecord(content=action["content"], layer=MemoryLayer.L2, importance=0.9, metadata={"consolidated_from": record.id}))
+                self.store.write_profile(action["content"])
+            elif action.get("action") == "promote" and isinstance(action.get("content"), str):
+                self.store.put(MemoryRecord(content=action["content"], layer=MemoryLayer.L1, importance=max(record.importance, 0.75), metadata={"consolidated_from": record.id, "action": "promote"}))
+            elif action.get("action") == "correction" and isinstance(action.get("content"), str):
+                self.store.put(MemoryRecord(content=action["content"], layer=MemoryLayer.PROCEDURE, importance=1.0, metadata={"kind": "correction", "consolidated_from": record.id}))
             else: continue
             self.store.put(record); changed.append(record.id)
         self.store.rebuild_index()

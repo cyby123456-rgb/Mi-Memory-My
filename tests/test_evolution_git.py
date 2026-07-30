@@ -23,6 +23,8 @@ class EvolutionAndGitTests(unittest.TestCase):
             signal = DiagnosticSignal("q", [], [], [], "retrieval", "retrieval_gap")
             outcome = engine.run_round([signal], lambda candidate, probe: EvaluationReport(0.8, 0.82 if probe else 0.85, {"temporal": 0.0}))
             self.assertEqual((outcome.decision, outcome.gate), ("accepted", "five_gate"))
+            self.assertTrue(outcome.gate_records["acceptance"])
+            self.assertTrue((Path(root) / "strategies" / "e2mend-artifacts.jsonl").exists())
 
     def test_e2mend_rejects_replayed_regression(self):
         with TemporaryDirectory() as root:
@@ -30,6 +32,15 @@ class EvolutionAndGitTests(unittest.TestCase):
             signal = DiagnosticSignal("q", [], [], [], "retrieval", "retrieval_gap")
             outcome = engine.run_round([signal], lambda candidate, probe: EvaluationReport(0.8, 0.81, stable_correct_regressions=1))
             self.assertEqual((outcome.decision, outcome.gate), ("rejected", "replay"))
+
+    def test_e2mend_rolls_back_on_checkpoint_drift(self):
+        with TemporaryDirectory() as root:
+            manager = StrategyManager(Path(root) / "strategies")
+            candidate = manager.propose({"retrieval.top_k": 16})
+            manager.evaluate(candidate, EvaluationReport(0.8, 0.9))
+            engine = E2MEND(manager, FakeChat({"changes": {"retrieval.top_k": 18}}), FakeChat({"decision": "actionable", "reason": "ok"}), drift_tolerance=0.01)
+            self.assertTrue(engine.rollback_on_drift(0.7, 0.9))
+            self.assertEqual(manager.current()["artifact_id"], "default")
 
     def test_litemem_git_provenance_commits_and_diffs(self):
         with TemporaryDirectory() as root:

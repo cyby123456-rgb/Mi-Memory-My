@@ -55,7 +55,15 @@ class LiteMemStoreTests(unittest.TestCase):
         self.assertIn("session=s1", raw_path.read_text())
         self.assertEqual(json.loads(trace_path.read_text())["query_id"], trace.query_id)
 
+    def test_singleton_context_is_prepended_to_file_native_route(self) -> None:
+        style = self.store.write_profile("Be concise.", style=True)
+        profile = self.store.write_profile("User likes tea.")
+        evidence = self.store.put(MemoryRecord(content="The tea is in the cupboard."))
+        routed = self.store.route_file_native("where is tea")
+        self.assertEqual([item.id for item in routed[:2]], [style.id, profile.id])
+        self.assertIn(evidence.id, [item.id for item in routed])
+        self.assertIn("SUMMARY_END", (self.root / "user" / "style.md").read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()
-

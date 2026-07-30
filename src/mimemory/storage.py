@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import math
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -45,6 +46,9 @@ class LiteMemStore:
         self.root.mkdir(parents=True, exist_ok=True)
         for folder in set(self._LAYER_DIR.values()) | {"daily", "knowledge/learning", "traces"}:
             (self.root / folder).mkdir(parents=True, exist_ok=True)
+        corrections = self.root / "knowledge/learning/corrections.md"
+        if not corrections.exists():
+            self._atomic_write(corrections, "# Corrections\n\n<!-- SUMMARY_END -->\n")
         self._index_path = self.root / "_index.json"
         if not self._index_path.exists():
             self._write_index({})
@@ -67,12 +71,19 @@ class LiteMemStore:
         self._atomic_write(self._index_path, json.dumps(index, indent=2, sort_keys=True) + "\n")
 
     def _write_human_index(self, index: dict[str, str]) -> None:
-        lines = ["# LiteMem index", ""]
+        lines = ["# LiteMem index", "", "Active memory summary:", ""]
         for record_id, path in sorted(index.items(), key=lambda item: item[1]):
-            lines.append(f"- `{record_id}`: [{path}]({path})")
+            record = self.get(record_id) if hasattr(self, "_index_path") else None
+            suffix = f" -- {record.summary}" if record and record.status is MemoryStatus.ACTIVE else ""
+            lines.append(f"- `{record_id}`: [{path}]({path}){suffix}")
         self._atomic_write(self.root / "_index.md", "\n".join(lines) + "\n")
 
     def _relative_path(self, record: MemoryRecord) -> Path:
+        # Table 31 uses singleton user files for high-priority persistent context.
+        if record.layer is MemoryLayer.L2 and record.metadata.get("kind") == "style":
+            return Path("user/style.md")
+        if record.layer is MemoryLayer.L2 and record.metadata.get("kind") == "profile":
+            return Path("user/profile.md")
         folder = self._LAYER_DIR[record.layer]
         return Path(folder) / f"{record.id}.md"
 
@@ -80,7 +91,7 @@ class LiteMemStore:
         metadata = record.to_dict()
         content = metadata.pop("content")
         frontmatter = json.dumps(metadata, ensure_ascii=False, sort_keys=True)
-        return f"---\n{frontmatter}\n---\n\n{content.rstrip()}\n"
+        return f"---\n{frontmatter}\n---\n\n{content.rstrip()}\n\n<!-- SUMMARY_END -->\n"
 
     def _deserialize(self, path: Path) -> MemoryRecord:
         text = path.read_text(encoding="utf-8")
@@ -88,7 +99,7 @@ class LiteMemStore:
         if not match:
             raise ValueError(f"invalid LiteMem record: {path}")
         metadata = json.loads(match.group(1))
-        metadata["content"] = match.group(2).rstrip()
+        metadata["content"] = match.group(2).replace("<!-- SUMMARY_END -->", "").rstrip()
         return MemoryRecord.from_dict(metadata)
 
     def put(self, record: MemoryRecord) -> MemoryRecord:
@@ -104,7 +115,16 @@ class LiteMemStore:
         self._write_index(index)
         self._write_human_index(index)
         self._append_audit("put", record.id, {"path": relative.as_posix(), "status": record.status.value})
+        if record.metadata.get("kind") == "correction":
+            self._append_correction(record)
         return record
+
+    def _append_correction(self, record: MemoryRecord) -> None:
+        path = self.root / "knowledge/learning/corrections.md"
+        existing = path.read_text(encoding="utf-8").replace("<!-- SUMMARY_END -->", "").rstrip()
+        marker = f"- `{record.id}`: {record.summary}"
+        if marker not in existing:
+            self._atomic_write(path, f"{existing}\n{marker}\n\n<!-- SUMMARY_END -->\n")
 
     def get(self, record_id: str) -> MemoryRecord | None:
         relative = self._read_index().get(record_id)
@@ -163,6 +183,54 @@ class LiteMemStore:
         with path.open("a", encoding="utf-8") as stream:
             stream.write(f"- [{timestamp}]{session} {content.strip()}\n")
         return path
+
+    def write_profile(self, content: str, *, style: bool = False) -> MemoryRecord:
+        """Replace, rather than append, the public singleton profile/style files."""
+        kind = "style" if style else "profile"
+        target = self.root / ("user/style.md" if style else "user/profile.md")
+        old = next((record for record in self.list(include_inactive=True) if self._relative_path(record) == target.relative_to(self.root)), None)
+        record = MemoryRecord(content=content, layer=MemoryLayer.L2, id=old.id if old else f"user-{kind}",
+            importance=1.0, metadata={"kind": kind})
+        return self.put(record)
+
+    def active_context(self) -> list[MemoryRecord]:
+        """Always prepend style then profile before any lazily routed evidence."""
+        order = {"style": 0, "profile": 1}
+        return sorted((record for record in self.list() if record.metadata.get("kind") in order),
+                      key=lambda record: order[record.metadata["kind"]])
+
+    @staticmethod
+    def importance_score(record: MemoryRecord, *, now: datetime | None = None) -> float:
+        """Eq. 21's observable ingredients: importance, recency and access, penalised by skips."""
+        now = now or datetime.now(UTC)
+        try:
+            age_hours = max(0.0, (now - datetime.fromisoformat(record.last_accessed_at)).total_seconds() / 3600)
+        except ValueError:
+            age_hours = 0.0
+        return record.importance * math.exp(-age_hours / 720.0) + 0.02 * record.access_count - 0.01 * record.skip_count
+
+    def route_file_native(self, query: str, *, daily_line_window: int = 40, limit: int = 12) -> list[MemoryRecord]:
+        """File-native Eq. 20 router: grep-like matching, lazy daily windows, then priority context."""
+        terms = {term for term in re.findall(r"\w+", query.casefold()) if term}
+        scored: list[tuple[float, MemoryRecord]] = []
+        for record in self.list():
+            haystack = f"{record.title} {record.summary} {record.content}".casefold()
+            lexical = sum(term in haystack for term in terms)
+            if lexical:
+                scored.append((lexical + self.importance_score(record), record))
+        # Daily files are read only around matching lines, never as whole logs.
+        for daily in (self.root / "daily").glob("*.md"):
+            lines = daily.read_text(encoding="utf-8").splitlines()
+            for index, line in enumerate(lines):
+                if terms and any(term in line.casefold() for term in terms):
+                    start, end = max(0, index - daily_line_window // 2), min(len(lines), index + daily_line_window // 2)
+                    window = "\n".join(lines[start:end])
+                    scored.append((1.0, MemoryRecord(content=window, layer=MemoryLayer.SM, title=f"daily:{daily.stem}", metadata={"daily_path": str(daily), "line_window": [start + 1, end]})))
+                    break
+        prefixes = self.active_context()
+        prefix_ids = {record.id for record in prefixes}
+        ordered = [record for _, record in sorted(scored, key=lambda item: (-item[0], item[1].id)) if record.id not in prefix_ids]
+        return [*prefixes, *ordered[:limit]]
 
     def write_trace(self, trace: DiagnosticTrace) -> Path:
         path = self.root / "traces" / f"{trace.query_id}.json"
