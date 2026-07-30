@@ -34,10 +34,18 @@ class ImageObservation:
 @dataclass(slots=True)
 class ImageKnowledgeBase:
     facts: list[PerceptionFact] = field(default_factory=list)
+    by_category: dict[str, list[str]] = field(default_factory=dict)
+    by_session: dict[str, list[str]] = field(default_factory=dict)
+    by_date: dict[str, list[str]] = field(default_factory=dict)
 
     def add(self, facts: list[PerceptionFact]) -> None:
         ids = {item.fact_id for item in self.facts}
-        self.facts.extend(item for item in facts if item.fact_id not in ids)
+        for item in facts:
+            if item.fact_id in ids: continue
+            self.facts.append(item); ids.add(item.fact_id)
+            if item.category: self.by_category.setdefault(item.category.casefold(), []).append(item.fact_id)
+            if item.session: self.by_session.setdefault(item.session, []).append(item.fact_id)
+            if item.date: self.by_date.setdefault(item.date, []).append(item.fact_id)
 
     def select(self, query: str, *, category: str | None = None, session: str | None = None) -> list[PerceptionFact]:
         terms = set(query.casefold().split())
@@ -51,6 +59,17 @@ class ImageKnowledgeBase:
             if terms & set(haystack.split()):
                 result.append(fact)
         return sorted(result, key=lambda item: (-item.confidence, item.fact_id))
+
+    def ikb_first(self, intent: str, *, category: str | None = None, session: str | None = None, date: str | None = None) -> list[PerceptionFact]:
+        """Algorithm 1's deterministic IKB constraints before residual VLM retrieval."""
+        ids: set[str] | None = None
+        for index, key in ((self.by_category, category.casefold() if category else None), (self.by_session, session), (self.by_date, date)):
+            if key is not None:
+                current = set(index.get(key, [])); ids = current if ids is None else ids & current
+        candidates = [item for item in self.facts if ids is None or item.fact_id in ids]
+        if intent == "VR": return sorted(candidates, key=lambda item: item.fact_id)
+        if intent in {"VS", "TTL"}: return sorted(candidates, key=lambda item: (-item.confidence, item.fact_id))
+        raise ValueError("IKB intent must be VR, VS, or TTL")
 
 
 class MemSense:
