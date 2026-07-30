@@ -123,8 +123,10 @@ class MemoryService:
         return created
 
     def remember_profile(self, content: str, *, source_id: str | None = None) -> MemoryRecord:
+        if isinstance(self.store, LiteMemStore):
+            return self.store.write_profile(content)
         source = SourceRef(source_id=source_id or uuid4().hex)
-        return self.add_memory(content, layer=MemoryLayer.L2, importance=0.9, sources=[source])
+        return self.add_memory(content, layer=MemoryLayer.L2, importance=0.9, sources=[source], metadata={"kind": "profile"})
 
     def remember_procedure(
         self,

@@ -22,11 +22,11 @@ This repository is an independent implementation based on the public paper. It i
 | Paper role | This implementation | Status |
 | --- | --- | --- |
 | Structure / MemStack | Typed records, hybrid retrieval, RRF, context assembly, traces | Executable baseline |
-| Expansion / MemSense | `PerceptionFact` admission contract | Interface implemented; VLM/IKB builder pending |
-| Expansion / MemFuse | `FusedEvent` admission contract with atomic provenance | Interface implemented; causal fusion engine pending |
-| Evolution / D2ACCI | Per-query traces and explicit candidate evaluation reports | Executable baseline |
-| Evolution / E2MEND | Bounded strategy proposals, deterministic gates, checkpoints, rollback | Executable baseline; autonomous planner pending |
-| Deployment / LiteMem | Markdown repository, daily write-ahead log, index, decay, audit log | Executable baseline |
+| Expansion / MemSense | Five audited IKB passes, indexed VR/VS/TTL router and bounded residual image route | Executable; VLM calls require explicit provider approval |
+| Expansion / MemFuse | FusionSession zones and persistent atomic/MemoryPack causal graph | Executable with source/provenance validation |
+| Evolution / D2ACCI | Six-stage aligned diagnostic artifacts and append-only review ledger | Executable |
+| Evolution / E2MEND | Bounded planner, Critic, gate records, hypothesis statistics and checkpoint rollback | Executable; prompt-version mutations remain deliberately locked |
+| Deployment / LiteMem | Markdown repository, daily write-ahead log, singleton style/profile, correction learning file, index and audit log | Executable |
 
 ## Quick start
 
@@ -122,7 +122,9 @@ The default data directory follows the paper's LiteMem shape:
 │   ├── daily/
 │   ├── entity/
 │   ├── sessions/
-│   ├── user/profile/
+│   ├── user/profile.md
+│   ├── user/style.md
+│   ├── knowledge/learning/corrections.md
 │   ├── knowledge/skill/
 │   └── traces/
 └── strategies/
@@ -183,7 +185,7 @@ The following paper claims cannot currently be reproduced exactly from public ar
 - MemFuseBench, which the paper identifies as internal;
 - exact E2MEND trajectory replay, which depends on undisclosed deployment-specific model endpoints and full strategy history;
 - the procedural-memory benchmark, which the paper labels design-only;
-- the complete MemSense IKB/VLM pipeline and causal MemFuse engine.
+- exact original prompts, private model weights, and any unpublished benchmark preprocessing.
 
 The code therefore provides a runnable systems reconstruction and an auditable base for public benchmark adapters. It does not present clean-room behavior as the paper authors' unpublished implementation.
 
