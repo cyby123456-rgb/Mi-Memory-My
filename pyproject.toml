@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mi-memory-cleanroom"
+version = "0.2.0"
+description = "Executable clean-room implementation of the Mi-Memory lifecycle architecture"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "Mi-Memory clean-room contributors"}]
+dependencies = []
+
+[project.scripts]
+mimemory = "mimemory.cli:main"
+mimemory-leaderboard = "mimemory.leaderboard:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
