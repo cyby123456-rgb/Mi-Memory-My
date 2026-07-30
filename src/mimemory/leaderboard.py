@@ -17,6 +17,10 @@ from typing import Any
 
 from .models import MemoryLayer, MemoryRecord, SourceRef, utc_now
 from .memstack import MemStackRuntime
+from .memstack import MemStackModels
+from .config import default_strategy
+from .providers import OpenAICompatibleClient, PaperModelRoles
+from .storage import LiteMemStore
 from .retrieval import HybridRetriever
 from .service import MemoryService
 
@@ -375,10 +379,25 @@ def main() -> None:
     parser.add_argument("--host", default=os.getenv("HOST", "0.0.0.0"))
     parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "8765")))
     parser.add_argument("--retention-days", type=int, default=int(os.getenv("RETENTION_DAYS", "30")))
+    parser.add_argument("--runtime", choices=("paper", "baseline"), default=os.getenv("MIMEMORY_RUNTIME", "paper"))
     parser.add_argument("--purge-only", action="store_true")
     args = parser.parse_args()
-    adapter = LeaderboardAdapter(args.root)
-    removed = adapter.registry.purge_expired(args.retention_days)
+    if args.runtime == "paper":
+        roles = PaperModelRoles.from_environment()
+        def runtime_factory(user_id: str) -> MemStackRuntime:
+            scope = Path(args.root) / "paper_scopes" / _scope_digest(user_id)
+            models = MemStackModels(
+                extractor=OpenAICompatibleClient(roles.extraction),
+                planner=OpenAICompatibleClient(roles.extraction),
+                reranker=OpenAICompatibleClient(roles.evaluator),
+                embeddings=OpenAICompatibleClient(roles.embedding),
+            )
+            return MemStackRuntime(LiteMemStore(scope), default_strategy(), models)
+        adapter: Any = PaperLeaderboardAdapter(runtime_factory)
+        removed: list[str] = []
+    else:
+        adapter = LeaderboardAdapter(args.root)
+        removed = adapter.registry.purge_expired(args.retention_days)
     if args.purge_only:
         print(json.dumps({"removed_scopes": removed}))
         return
