@@ -84,6 +84,7 @@ class MultimodalAndDiagnosticTests(unittest.TestCase):
         review = D2ACCI().review("q1", "where", "car", ["turn-1"], [fact], [fact], [], "unknown", FakeChat({"label": "Uncertain"}))
         self.assertEqual(review.diagnosis.error_label, "filtering_gap")
         self.assertEqual(review.filtered_context_review["filtered_ids"], [])
+        self.assertEqual(D2ACCI.category_report([review], {"q1": "temporal"}), {"temporal": {"filtering_gap": 1}})
 
 
 if __name__ == "__main__": unittest.main()

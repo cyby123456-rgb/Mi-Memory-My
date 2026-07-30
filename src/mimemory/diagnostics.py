@@ -62,6 +62,17 @@ class D2ACCI:
                 stream.write(json.dumps(artifact.to_dict(), ensure_ascii=False, sort_keys=True) + "\n")
         return artifact
 
+    @staticmethod
+    def category_report(artifacts: list[D2ACCIArtifact], categories: dict[str, str]) -> dict[str, dict[str, int]]:
+        """Produce the category-level non-regression surface used by paired review."""
+        report: dict[str, dict[str, int]] = {}
+        for artifact in artifacts:
+            category = categories.get(artifact.question_id, "unknown")
+            bucket = report.setdefault(category, {})
+            label = artifact.diagnosis.error_label
+            bucket[label] = bucket.get(label, 0) + 1
+        return report
+
 
 def layer_a_diagnose(question_id: str, question: str, gold_answer: str, evidence_source_ids: list[str], stored: list[MemoryRecord], retrieved: list[MemoryRecord], classifier: Any, *, filtered: list[MemoryRecord] | None = None) -> DiagnosticSignal:
     evidence_set = set(evidence_source_ids)
