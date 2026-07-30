@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 from pathlib import Path
 
 from mimemory.diagnostics import D2ACCI, layer_a_diagnose
-from mimemory.models import MemoryRecord, SourceRef
+from mimemory.models import MemoryRecord, PerceptionFact, SourceRef
 from mimemory.multimodal import (
     DeviceEvent, FusionSession, IKBRouter, ImageKnowledgeBase, ImageObservation,
     MemFuse, MemSense,
@@ -36,6 +36,13 @@ class MultimodalAndDiagnosticTests(unittest.TestCase):
         self.assertEqual(result.facts, (fact,))
         self.assertEqual(result.image_ids, ("declared", "g1", "image-1"))
         self.assertFalse(result.used_residual_vlm)
+
+    def test_ikb_persistence_rebuilds_its_indexes(self):
+        with TemporaryDirectory() as root:
+            fact = PerceptionFact("f", "img", "Blue bag", session="s", date="2026-01-01", category="equipment", source_ids=["img"])
+            ikb = ImageKnowledgeBase(); ikb.add([fact]); ikb.save(Path(root) / "ikb.json")
+            recovered = ImageKnowledgeBase.load(Path(root) / "ikb.json")
+            self.assertEqual(recovered.ikb_first("VR", category="equipment"), [fact])
 
     def test_memfuse_requires_auditable_event_provenance(self):
         fuse = MemFuse(FakeChat({"summary": "The bag moved to the car.", "edge_type": "CAUSES", "source_event_ids": ["camera", "car"], "confidence": 0.8, "provenance": ["camera", "car"]}))

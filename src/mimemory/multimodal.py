@@ -105,6 +105,23 @@ class ImageKnowledgeBase:
             return sorted(candidates, key=lambda item: (-item.confidence, item.fact_id))
         raise ValueError("IKB intent must be VR, VS, or TTL")
 
+    def save(self, path: str | Path) -> None:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps({"facts": [asdict(fact) for fact in self.facts], "by_category": self.by_category,
+            "by_session": self.by_session, "by_date": self.by_date}, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+
+    @classmethod
+    def load(cls, path: str | Path) -> "ImageKnowledgeBase":
+        target = Path(path)
+        if not target.exists():
+            return cls()
+        value = json.loads(target.read_text(encoding="utf-8"))
+        facts = [PerceptionFact(**item) for item in value.get("facts", [])]
+        ikb = cls()
+        ikb.add(facts)  # Rebuild indexes from facts rather than trusting stale serialized indexes.
+        return ikb
+
 
 class MemSense:
     def __init__(self, vision_model: Any) -> None:
