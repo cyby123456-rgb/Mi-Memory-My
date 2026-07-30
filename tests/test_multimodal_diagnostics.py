@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import unittest
+from tempfile import TemporaryDirectory
+from pathlib import Path
 
 from mimemory.diagnostics import D2ACCI, layer_a_diagnose
 from mimemory.models import MemoryRecord, SourceRef
@@ -50,6 +52,18 @@ class MultimodalAndDiagnosticTests(unittest.TestCase):
         self.assertEqual(session.add(one, "perception"), [])
         self.assertEqual(session.add(two, "perception"), [one])
         self.assertEqual(session.ordered_events(), [two])
+
+    def test_memfuse_reloads_persistent_dual_layer_graph(self):
+        with TemporaryDirectory() as root:
+            graph_path = Path(root) / "graph.json"
+            response = {"summary": "Bag moved.", "edge_type": "CAUSES", "source_event_ids": ["a", "b"], "confidence": 0.9, "provenance": ["a", "b"]}
+            MemFuse(FakeChat(response), graph_path=graph_path).fuse([
+                DeviceEvent("a", "left", "2026-01-01T10:00:00+00:00", "phone", ["a"]),
+                DeviceEvent("b", "arrived", "2026-01-01T10:01:00+00:00", "watch", ["b"]),
+            ])
+            recovered = MemFuse(FakeChat(response), graph_path=graph_path)
+            self.assertEqual(len(recovered.graph.atomic_events), 2)
+            self.assertEqual(len(recovered.graph.memory_packs), 1)
 
     def test_layer_a_covers_deterministic_and_llm_branches(self):
         fact = MemoryRecord(content="Bag is in car", sources=[SourceRef("turn-1")])

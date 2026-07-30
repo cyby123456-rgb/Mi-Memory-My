@@ -7,8 +7,10 @@ graph mutation explicit and retains the source evidence for every output.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import json
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Callable, Literal
 from uuid import uuid4
 
@@ -249,17 +251,41 @@ class CausalMemoryGraph:
         if pack.edge_type in {"CAUSES", "RELATED"} and len(pack.source_event_ids) > 1:
             self.edges.append(CausalEdge(pack.source_event_ids[0], pack.source_event_ids[-1], pack.edge_type, pack.confidence, tuple(pack.provenance)))
 
+    def save(self, path: str | Path) -> None:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps({"atomic_events": [asdict(item) for item in self.atomic_events.values()],
+            "memory_packs": [asdict(item) for item in self.memory_packs.values()], "edges": [asdict(item) for item in self.edges]}, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
+
+    @classmethod
+    def load(cls, path: str | Path) -> "CausalMemoryGraph":
+        target = Path(path)
+        if not target.exists():
+            return cls()
+        value = json.loads(target.read_text(encoding="utf-8"))
+        graph = cls()
+        graph.atomic_events = {item["event_id"]: DeviceEvent(**item) for item in value.get("atomic_events", [])}
+        graph.memory_packs = {item["id"]: FusedEvent(**item) for item in value.get("memory_packs", [])}
+        graph.edges = [CausalEdge(**{**item, "provenance": tuple(item["provenance"])}) for item in value.get("edges", [])]
+        return graph
+
 
 class MemFuse:
-    def __init__(self, fusion_model: Any, *, confidence_floor: float = 0.5) -> None:
+    def __init__(self, fusion_model: Any, *, confidence_floor: float = 0.5, graph_path: str | Path | None = None) -> None:
         self.fusion_model, self.confidence_floor = fusion_model, confidence_floor
-        self.graph = CausalMemoryGraph()
+        self.graph_path = Path(graph_path) if graph_path else None
+        self.graph = CausalMemoryGraph.load(self.graph_path) if self.graph_path else CausalMemoryGraph()
+
+    def _persist_graph(self) -> None:
+        if self.graph_path:
+            self.graph.save(self.graph_path)
 
     def fuse(self, events: list[DeviceEvent]) -> FusedEvent:
         if len(events) < 2:
             raise ValueError("FusionSession requires at least two atomic device events")
         ordered = sorted(events, key=lambda item: item.timestamp)
         self.graph.retain_atomic(ordered)
+        self._persist_graph()
         payload = [{"event_id": item.event_id, "content": item.content, "timestamp": item.timestamp, "device_id": item.device_id, "source_ids": item.source_ids} for item in ordered]
         result = json_from_completion(self.fusion_model.complete([{"role": "system", "content": MEMFUSE_PROMPT}, {"role": "user", "content": str(payload)}]))
         source_event_ids = result.get("source_event_ids")
@@ -280,4 +306,5 @@ class MemFuse:
             timestamp=selected[-1].timestamp, device_ids=sorted({item.device_id for item in selected}), edge_type=edge_type,
             provenance=[str(item) for item in provenance], confidence=confidence, metadata={"session_start": selected[0].timestamp})
         self.graph.add_pack(fused)
+        self._persist_graph()
         return fused
