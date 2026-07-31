@@ -127,9 +127,18 @@ class MemStackRuntime:
         by_id = {record.id: record for record in records}
         candidates = [item for item in fused[:candidate_limit] if item[0] in by_id]
         rerank_payload = {"query": query, "intent": plan.get("intent", ""), "candidates": [{"id": item[0], "content": by_id[item[0]].content, "provenance": [source.source_id for source in by_id[item[0]].sources]} for item in candidates]}
-        ranked = json_from_completion(self.models.reranker.complete([{"role": "system", "content": RERANK_PROMPT}, {"role": "user", "content": str(rerank_payload)}]))
-        rows = ranked.get("ranking")
-        if not isinstance(rows, list) or {row.get("id") for row in rows if isinstance(row, dict)} != {item[0] for item in candidates}:
+        expected_ids = {item[0] for item in candidates}
+        rows: list[dict[str, Any]] | None = None
+        attempts = int(self.strategy["retrieval"].get("rerank_attempts", 3))
+        for _ in range(max(1, attempts)):
+            ranked = json_from_completion(self.models.reranker.complete([
+                {"role": "system", "content": RERANK_PROMPT}, {"role": "user", "content": str(rerank_payload)}
+            ]))
+            candidate_rows = ranked.get("ranking")
+            if isinstance(candidate_rows, list) and len(candidate_rows) == len(expected_ids) and all(isinstance(row, dict) for row in candidate_rows) and {row.get("id") for row in candidate_rows} == expected_ids:
+                rows = candidate_rows
+                break
+        if rows is None:
             raise ProviderError("reranker must return every candidate id exactly once")
         rerank_scores = {str(row["id"]): float(row["score"]) for row in rows}
         ordered = sorted(candidates, key=lambda item: (-rerank_scores[item[0]], -item[1], item[0]))

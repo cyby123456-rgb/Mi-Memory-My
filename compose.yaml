@@ -6,6 +6,9 @@ services:
     environment:
       RETENTION_DAYS: "30"
       MIMEMORY_API_TOKEN: "${MIMEMORY_API_TOKEN:-}"
+      MIMEMORY_RUNTIME: "${MIMEMORY_RUNTIME:-paper}"
+      # Remote calls remain off unless the operator explicitly enables this run.
+      MIMEMORY_LIVE_PROVIDER_APPROVED: "${MIMEMORY_LIVE_PROVIDER_APPROVED:-0}"
     env_file:
       - .env
     volumes:

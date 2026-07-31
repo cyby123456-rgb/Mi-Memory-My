@@ -48,6 +48,8 @@ class MemStackRuntimeTests(unittest.TestCase):
         # Supply the generated stable ids to the mock reranker after ingestion.
         reranker.responses[0]["ranking"][0]["id"] = records[0].id
         reranker.responses[0]["ranking"][1]["id"] = records[1].id
+        # A malformed first result is retried; only a complete candidate set is accepted.
+        reranker.responses.insert(0, {"ranking": []})
         bundle = runtime.retrieve("Where is the blue bag?", user_id="u1")
         self.assertEqual(bundle.evidence[0].record.content, "The blue bag is in the car.")
         self.assertIn("semantic", bundle.trace.channel_results)
@@ -58,4 +60,3 @@ class MemStackRuntimeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
