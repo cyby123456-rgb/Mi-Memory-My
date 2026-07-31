@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from mimemory.benchmarks import BenchmarkCase, BenchmarkHarness, LoCoMoAdapter, LongMemEvalAdapter
+from mimemory.benchmarks import BenchmarkCase, BenchmarkHarness, LoCoMoAdapter, LongMemEvalAdapter, PersonaMemV2Adapter
 from mimemory.config import default_strategy
 from mimemory.memstack import MemStackModels, MemStackRuntime
 from mimemory.storage import LiteMemStore
@@ -61,6 +61,17 @@ class BenchmarkTests(unittest.TestCase):
             requests = adapter.add_requests(adapter.load(path)[0])
             self.assertEqual([request["session_id"] for request in requests], ["s1", "s2"])
             self.assertEqual(requests[1]["messages"][0]["timestamp"], 1704153600000)
+
+    def test_personamem_adapter_reads_released_csv_contract(self):
+        with TemporaryDirectory() as root:
+            path = Path(root) / "benchmark.csv"
+            path.write_text(
+                "persona_id,user_query,correct_answer,incorrect_answers,chat_history_32k_link,pref_type\n"
+                '7,"{""role"": ""user"", ""content"": ""What should I cook?""}",pasta,"[""salad""]","[{""role"": ""user"", ""content"": ""I like pasta""}]",food\n',
+                encoding="utf-8",
+            )
+            case = PersonaMemV2Adapter().load(path)[0]
+            self.assertEqual((case.user_id, case.query, case.options), ("personamem:7", "What should I cook?", ["pasta", "salad"]))
 
 
 if __name__ == "__main__": unittest.main()

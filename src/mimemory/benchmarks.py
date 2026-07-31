@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import re
+import ast
+import csv
 from datetime import UTC, datetime
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -148,7 +150,50 @@ class LoCoMoAdapter(PublicDatasetAdapter):
         return cases
 
 
-class PersonaMemV2Adapter(PublicDatasetAdapter): name = "personamem_v2"
+class PersonaMemV2Adapter(PublicDatasetAdapter):
+    """Adapter for PersonaMem-v2's released benchmark CSV and local history files."""
+    name = "personamem_v2"
+
+    @staticmethod
+    def _decode(value: str) -> Any:
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return ast.literal_eval(value)
+
+    def load(self, path: str | Path) -> list[BenchmarkCase]:
+        csv_path = Path(path)
+        cases: list[BenchmarkCase] = []
+        with csv_path.open(encoding="utf-8", newline="") as stream:
+            for index, row in enumerate(csv.DictReader(stream)):
+                raw_query = row.get("user_query", "")
+                try:
+                    query_object = self._decode(raw_query)
+                except (ValueError, SyntaxError):
+                    query_object = {"content": raw_query}
+                query = query_object.get("content", "") if isinstance(query_object, dict) else str(query_object)
+                if not isinstance(query, str) or not query.strip():
+                    continue
+                history_value = row.get("chat_history_32k_link") or row.get("chat_history_link") or ""
+                try:
+                    history = self._decode(history_value)
+                except (ValueError, SyntaxError):
+                    history_path = (csv_path.parent / history_value).resolve()
+                    history = json.loads(history_path.read_text(encoding="utf-8"))
+                if isinstance(history, dict):
+                    history = history.get("conversations", [])
+                messages = _messages(history)
+                correct = row.get("correct_answer", "")
+                try:
+                    incorrect = self._decode(row.get("incorrect_answers", "[]"))
+                except (ValueError, SyntaxError):
+                    incorrect = []
+                options = [str(correct), *[str(item) for item in incorrect if isinstance(item, str)]]
+                persona_id = str(row.get("persona_id", index))
+                cases.append(BenchmarkCase(case_id=f"personamem:{persona_id}:{index}", user_id=f"personamem:{persona_id}",
+                    session_id=f"personamem:{persona_id}", messages=messages, query=query, answer=str(correct), options=options,
+                    category=str(row.get("pref_type", "unknown"))))
+        return cases
 class LongMemEvalAdapter(PublicDatasetAdapter):
     """Adapter for the official LongMemEval-S/M session schema.
 
