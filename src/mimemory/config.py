@@ -17,7 +17,7 @@ DEFAULT_STRATEGY: dict[str, Any] = {
         "weights": {"semantic": 1.0, "lexical": 1.0, "subquery": 1.0},
         "subquery_max_n": 5,
         "rerank_top_n": 12,
-        "rerank_attempts": 3,
+        "rerank_attempts": 6,
         "intent_override": "auto",
     },
     "assembly": {
