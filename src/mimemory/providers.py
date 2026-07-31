@@ -131,15 +131,21 @@ class OpenAICompatibleClient:
     def embed(self, inputs: list[str], *, model: str | None = None) -> list[list[float]]:
         if not inputs:
             return []
-        value = self._post("/embeddings", {"model": model or self.endpoint.model, "input": inputs})
-        try:
-            rows = sorted(value["data"], key=lambda item: int(item["index"]))
-            vectors = [item["embedding"] for item in rows]
-        except (KeyError, TypeError, ValueError) as exc:
-            raise ProviderError("provider response has no usable embeddings") from exc
-        if len(vectors) != len(inputs) or any(not isinstance(vector, list) for vector in vectors):
-            raise ProviderError("embedding response count does not match input")
-        return [[float(value) for value in vector] for vector in vectors]
+        vectors: list[list[float]] = []
+        # The configured compatible endpoint accepts at most ten inputs per
+        # request. Keep the original sequence when joining the response batches.
+        for start in range(0, len(inputs), 10):
+            batch = inputs[start:start + 10]
+            value = self._post("/embeddings", {"model": model or self.endpoint.model, "input": batch})
+            try:
+                rows = sorted(value["data"], key=lambda item: int(item["index"]))
+                batch_vectors = [item["embedding"] for item in rows]
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ProviderError("provider response has no usable embeddings") from exc
+            if len(batch_vectors) != len(batch) or any(not isinstance(vector, list) for vector in batch_vectors):
+                raise ProviderError("embedding response count does not match input")
+            vectors.extend([[float(item) for item in vector] for vector in batch_vectors])
+        return vectors
 
 
 def json_from_completion(content: str) -> dict[str, Any]:

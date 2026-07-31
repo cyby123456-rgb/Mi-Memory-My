@@ -56,6 +56,15 @@ class ProviderConfigurationTests(unittest.TestCase):
             client.complete([{"role": "user", "content": "test"}])
         self.assertEqual(post.call_args.args[1]["response_format"], {"type": "json_object"})
 
+    def test_embedding_requests_are_batched_in_original_order(self) -> None:
+        client = OpenAICompatibleClient(Endpoint("https://provider.example/v1", "test-key", "test-model"))
+        def response(_path, payload):
+            return {"data": [{"index": index, "embedding": [float(index)]} for index, _ in enumerate(payload["input"])]}
+        with patch.object(client, "_post", side_effect=response) as post:
+            vectors = client.embed([str(index) for index in range(21)])
+        self.assertEqual([len(call.args[1]["input"]) for call in post.call_args_list], [10, 10, 1])
+        self.assertEqual(len(vectors), 21)
+
 
 if __name__ == "__main__":
     unittest.main()
