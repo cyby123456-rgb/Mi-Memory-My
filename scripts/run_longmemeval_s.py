@@ -33,6 +33,7 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=0, help="0 processes every official sample")
     parser.add_argument("--top-k", type=int, default=12)
     parser.add_argument("--retry-delay", type=float, default=5.0)
+    parser.add_argument("--max-case-attempts", type=int, default=0, help="0 retries a failed case until it succeeds")
     args = parser.parse_args()
 
     root = Path(args.root)
@@ -63,19 +64,26 @@ def main() -> None:
         if case.case_id in completed:
             continue
         requests = dataset.add_requests(case)
-        try:
-            for request in requests:
-                adapter.add(request)
-            response = adapter.search({"query": case.query, "user_id": case.user_id, "top_k": args.top_k, "options": []})
-            append_jsonl(results_path, {
-                "ordinal": ordinal, "question_id": case.case_id, "question_type": case.category,
-                "add_requests": len(requests), "messages": sum(len(item["messages"]) for item in requests),
-                "search_hit_ids": [item["id"] for item in response["data"]],
-            })
-        except Exception as exc:  # Keep a retriable audit record without secrets or source text.
-            append_jsonl(errors_path, {"ordinal": ordinal, "question_id": case.case_id, "error": type(exc).__name__, "message": str(exc)[:500]})
-            sleep(args.retry_delay)
-            raise
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                for request in requests:
+                    adapter.add(request)
+                response = adapter.search({"query": case.query, "user_id": case.user_id, "top_k": args.top_k, "options": []})
+                append_jsonl(results_path, {
+                    "ordinal": ordinal, "question_id": case.case_id, "question_type": case.category,
+                    "add_requests": len(requests), "messages": sum(len(item["messages"]) for item in requests),
+                    "search_hit_ids": [item["id"] for item in response["data"]],
+                })
+                break
+            except Exception as exc:  # Keep a retriable audit record without secrets or source text.
+                delay = min(args.retry_delay * (2 ** min(attempt - 1, 6)), 300.0)
+                append_jsonl(errors_path, {"ordinal": ordinal, "question_id": case.case_id, "attempt": attempt,
+                    "retry_delay_seconds": delay, "error": type(exc).__name__, "message": str(exc)[:500]})
+                if args.max_case_attempts and attempt >= args.max_case_attempts:
+                    raise
+                sleep(delay)
 
 
 if __name__ == "__main__":
