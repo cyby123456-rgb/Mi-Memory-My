@@ -53,6 +53,25 @@ class BenchmarkTests(unittest.TestCase):
             report = harness.paired_report(results, results)
             self.assertEqual(report["delta"], 0.0)
 
+    def test_harness_reuses_one_admission_and_writes_resource_ledger(self):
+        with TemporaryDirectory() as root:
+            extractor = QueueChat([{"facts": [{"content": "The bag is in the car.", "source_ids": ["t1"]}], "session_summary": "Bag location", "profile_updates": []}])
+            planner = QueueChat([{"intent": "location", "subqueries": ["bag car"], "requires_procedure": False, "requires_temporal_grounding": False}, {"intent": "location", "subqueries": ["bag"], "requires_procedure": False, "requires_temporal_grounding": False}])
+            reranker = QueueChat([{"ranking": []}, {"ranking": []}])
+            runtime = MemStackRuntime(LiteMemStore(root), default_strategy(), MemStackModels(extractor, planner, reranker, Vectors()))
+            original = reranker.complete
+            def rerank(messages, **kwargs):
+                if reranker.values and reranker.values[0]["ranking"] == []:
+                    reranker.values[0]["ranking"] = [{"id": x.id, "score": 1.0, "reason": "support"} for x in runtime.store.list()]
+                return original(messages, **kwargs)
+            reranker.complete = rerank
+            cases = [BenchmarkCase(f"q{index}", "u1", "s1", [{"source_id": "t1", "role": "user", "content": "The bag is in the car."}], "Where is bag?", "car", evidence_source_ids=["t1"], category="location") for index in range(2)]
+            resources = Path(root) / "resources.jsonl"
+            results = BenchmarkHarness(runtime, TextAnswer(), QueueChat([{"label": "Full_Coverage"}, {"label": "Full_Coverage"}])).run(cases, resource_path=resources)
+            self.assertEqual(len(extractor.values), 0)
+            self.assertEqual(len(resources.read_text(encoding="utf-8").splitlines()), 2)
+            self.assertEqual(BenchmarkHarness.report(results, {"q0": "location", "q1": "location"})["categories"]["location"]["cases"], 2)
+
     def test_longmemeval_adapter_preserves_session_order_for_add_requests(self):
         with TemporaryDirectory() as root:
             path = Path(root) / "longmemeval_s.json"

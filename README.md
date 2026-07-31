@@ -169,6 +169,28 @@ PYTHONPATH=src python -m unittest discover -s tests -v
 
 The suite covers persistence, index recovery, active/inactive filtering, raw logs, diagnostic traces, English and Chinese ingestion, hybrid retrieval, correction, forgetting, procedural separation, confidence filtering, lifecycle archival, typed multi-source payloads, strategy gates, rollback, both HTTP APIs, Add idempotency, user isolation, dynamic `top_k`, authentication, and retention cleanup.
 
+## Public benchmark runs
+
+`scripts/run_public_benchmark.py` uses the released LoCoMo, PersonaMem-v2, or
+LongMemEval export with one fixed `default_strategy` configuration. It emits an
+ignored run directory containing replay identifiers, predictions, D2ACCI
+diagnostics, resource timings, and a category-level answer exact-match report.
+It never searches parameter settings using held-out answers or evidence labels.
+This is an auditable diagnostic metric, not a substitute for each benchmark's
+official scorer.
+
+```bash
+set -a; . ./.env; set +a
+MIMEMORY_LIVE_PROVIDER_APPROVED=1 \
+PYTHONPATH=src python scripts/run_public_benchmark.py \
+  --benchmark locomo --data tmp/benchmarks/locomo/locomo10.json \
+  --root tmp/runs/locomo-fixed
+```
+
+The public data file and `tmp/runs/` must remain untracked. Before reporting a
+benchmark score, run its upstream official evaluator against the fixed run and
+record the evaluator revision alongside `report.json`.
+
 ## Docker
 
 ```bash

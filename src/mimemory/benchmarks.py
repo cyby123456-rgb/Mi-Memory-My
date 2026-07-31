@@ -11,6 +11,7 @@ import json
 import re
 import ast
 import csv
+import time
 from datetime import UTC, datetime
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -43,6 +44,19 @@ class CaseResult:
     retrieved_ids: list[str]
     trace_id: str
     diagnostic: dict[str, Any]
+
+
+@dataclass(slots=True)
+class ResourceLedger:
+    """Non-sensitive, appendable accounting for a benchmark replay."""
+
+    case_id: str
+    elapsed_seconds: float
+    ingested_records: int
+    retrieved_records: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 class AnswerProvider(Protocol):
@@ -268,19 +282,61 @@ class BenchmarkHarness:
         self.answerer = answerer
         self.classifier = classifier
 
-    def run(self, cases: Iterable[BenchmarkCase], output_path: str | Path | None = None) -> list[CaseResult]:
+    def run(self, cases: Iterable[BenchmarkCase], output_path: str | Path | None = None,
+            resource_path: str | Path | None = None) -> list[CaseResult]:
         results: list[CaseResult] = []
+        resources: list[ResourceLedger] = []
+        admitted: dict[tuple[str, str], list[MemoryRecord]] = {}
         for case in cases:
-            stored = self.runtime.ingest(case.messages, user_id=case.user_id, session_id=case.session_id)
+            started = time.monotonic()
+            admission_key = (case.user_id, case.session_id)
+            stored = admitted.get(admission_key)
+            if stored is None:
+                stored = self.runtime.ingest(case.messages, user_id=case.user_id, session_id=case.session_id)
+                admitted[admission_key] = stored
             context = self.runtime.retrieve(case.query, user_id=case.user_id)
             answer_prompt = {"question": case.query, "options": case.options, "evidence": context.text, "instruction": "Answer only from evidence. Return the answer directly."}
             predicted = self.answerer.complete([{"role": "user", "content": str(answer_prompt)}], temperature=0.0).strip()
             diagnostic = layer_a_diagnose(case.case_id, case.query, case.answer, case.evidence_source_ids, stored, [hit.record for hit in context.evidence], self.classifier)
             results.append(CaseResult(case.case_id, predicted, case.answer, normalize_answer(predicted) == normalize_answer(case.answer), [hit.record.id for hit in context.evidence], context.trace.query_id, diagnostic.to_dict()))
+            resources.append(ResourceLedger(case.case_id, round(time.monotonic() - started, 6), len(stored), len(context.evidence)))
         if output_path:
             path = Path(output_path); path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("\n".join(json.dumps(asdict(item), ensure_ascii=False) for item in results) + "\n", encoding="utf-8")
+            # Keep answer keys in the released dataset, not in replay artifacts.
+            path.write_text("\n".join(json.dumps({
+                "case_id": item.case_id,
+                "predicted_answer": item.predicted_answer,
+                "correct": item.correct,
+                "retrieved_ids": item.retrieved_ids,
+                "trace_id": item.trace_id,
+                "diagnostic": item.diagnostic,
+            }, ensure_ascii=False) for item in results) + "\n", encoding="utf-8")
+        if resource_path:
+            path = Path(resource_path); path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("\n".join(json.dumps(item.to_dict(), ensure_ascii=False) for item in resources) + "\n", encoding="utf-8")
         return results
+
+    @staticmethod
+    def report(results: Iterable[CaseResult], categories: dict[str, str] | None = None) -> dict[str, Any]:
+        """Return answer and diagnostic aggregates without publishing source data."""
+
+        rows = list(results)
+        category_map = categories or {}
+        grouped: dict[str, list[CaseResult]] = {}
+        for row in rows:
+            grouped.setdefault(category_map.get(row.case_id, "unknown"), []).append(row)
+        return {
+            "cases": len(rows),
+            "answer_exact_match": sum(row.correct for row in rows) / len(rows) if rows else 0.0,
+            "categories": {
+                name: {"cases": len(items), "answer_exact_match": sum(item.correct for item in items) / len(items) if items else 0.0}
+                for name, items in sorted(grouped.items())
+            },
+            "diagnostics": {
+                label: sum(row.diagnostic.get("error_label") == label for row in rows)
+                for label in sorted({row.diagnostic.get("error_label", "unknown") for row in rows})
+            },
+        }
 
     @staticmethod
     def paired_report(baseline: list[CaseResult], candidate: list[CaseResult]) -> dict[str, Any]:
