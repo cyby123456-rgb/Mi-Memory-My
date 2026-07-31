@@ -91,6 +91,13 @@ Successful response (`HTTP 200`):
 
 Results are ordered by descending relevance and never cross a `user_id` boundary. An unknown user or unmatched query returns `{"data": []}`.
 
+## Public HTTPS deployment
+
+For the platform's public-endpoint route, use `compose.public.yaml`. It places
+the API behind Caddy, obtains HTTPS certificates for a DNS-controlled domain,
+and keeps the internal API port off the public network. The exact deployment and
+form values are in [PUBLIC_API_DEPLOYMENT.zh-CN.md](PUBLIC_API_DEPLOYMENT.zh-CN.md).
+
 ## Optional endpoint authentication
 
 The server is open by default so maintainers can deploy the public repository without a secret. To protect a hosted endpoint, set:
@@ -103,6 +110,12 @@ Requests must then send either:
 
 ```text
 Authorization: Bearer replace-me
+```
+
+or, for the platform form shown as `Authorization: Token`:
+
+```text
+Authorization: Token replace-me
 ```
 
 or:
@@ -132,4 +145,3 @@ python scripts/smoke_test.py --base-url http://127.0.0.1:8765
 ```
 
 The smoke test exits non-zero unless Add returns the required echo fields and the added memory is immediately available through Search.
-

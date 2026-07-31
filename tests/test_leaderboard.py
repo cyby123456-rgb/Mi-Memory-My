@@ -128,10 +128,10 @@ class LeaderboardHTTPTests(unittest.TestCase):
         self.thread.join(timeout=2)
         self.temp.cleanup()
 
-    def request(self, path: str, payload: dict | None = None, *, token: str | None = "secret") -> tuple[int, dict]:
+    def request(self, path: str, payload: dict | None = None, *, token: str | None = "secret", auth_scheme: str = "Bearer") -> tuple[int, dict]:
         headers = {"Content-Type": "application/json"}
         if token:
-            headers["Authorization"] = f"Bearer {token}"
+            headers["Authorization"] = f"{auth_scheme} {token}"
         request = Request(
             self.base + path,
             data=json.dumps(payload).encode() if payload is not None else None,
@@ -158,6 +158,11 @@ class LeaderboardHTTPTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(added["success"])
 
+        token_payload = LeaderboardAdapterTests.add_payload(self, user_id="token-user")
+        status, added = self.request("/v1/add", token_payload, auth_scheme="Token")
+        self.assertEqual(status, 200)
+        self.assertTrue(added["success"])
+
         status, searched = self.request(
             "/search", {"query": "training bag", "user_id": payload["user_id"], "top_k": 100}
         )
@@ -167,4 +172,3 @@ class LeaderboardHTTPTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

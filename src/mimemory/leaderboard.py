@@ -316,8 +316,10 @@ class LeaderboardAPIHandler(BaseHTTPRequestHandler):
             return True
         authorization = self.headers.get("Authorization", "")
         x_api_key = self.headers.get("X-API-Key", "")
-        return hmac.compare_digest(authorization, f"Bearer {self.api_token}") or hmac.compare_digest(
-            x_api_key, self.api_token
+        return (
+            hmac.compare_digest(authorization, f"Bearer {self.api_token}")
+            or hmac.compare_digest(authorization, f"Token {self.api_token}")
+            or hmac.compare_digest(x_api_key, self.api_token)
         )
 
     def _read_json(self) -> dict[str, Any]:

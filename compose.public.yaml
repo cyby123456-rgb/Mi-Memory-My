@@ -1,0 +1,34 @@
+services:
+  mimemory:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MIMEMORY_RUNTIME: paper
+      MIMEMORY_LIVE_PROVIDER_APPROVED: "1"
+      MIMEMORY_API_TOKEN: "${MIMEMORY_API_TOKEN:?set a long random API token}"
+    volumes:
+      - mimemory-public-data:/data
+    expose:
+      - "8765"
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    depends_on:
+      - mimemory
+    environment:
+      PUBLIC_DOMAIN: "${PUBLIC_DOMAIN:?set the public DNS name}"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  mimemory-public-data:
+  caddy-data:
+  caddy-config:
