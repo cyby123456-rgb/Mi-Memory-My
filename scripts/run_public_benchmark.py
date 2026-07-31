@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from mimemory.benchmarks import BenchmarkHarness, LoCoMoAdapter, LongMemEvalAdapter, PersonaMemV2Adapter
@@ -50,7 +51,9 @@ def main() -> None:
             embeddings=OpenAICompatibleClient(roles.embedding),
         ),
     )
-    answerer = OpenAICompatibleClient(roles.extraction)
+    # Answer generation is free-form; JSON mode is reserved for the runtime's
+    # structured extraction and diagnostic contracts.
+    answerer = OpenAICompatibleClient(replace(roles.extraction, json_mode=False))
     classifier = OpenAICompatibleClient(roles.evaluator)
     harness = BenchmarkHarness(runtime, answerer, classifier)
     results = harness.run(cases, root / "results.jsonl", root / "resources.jsonl")
