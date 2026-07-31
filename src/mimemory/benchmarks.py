@@ -98,7 +98,56 @@ class PublicDatasetAdapter:
         return cases
 
 
-class LoCoMoAdapter(PublicDatasetAdapter): name = "locomo"
+class LoCoMoAdapter(PublicDatasetAdapter):
+    """Adapter for SNAP's released `locomo10.json` conversation/session schema."""
+    name = "locomo"
+
+    @staticmethod
+    def _timestamp(value: Any) -> int | None:
+        if not isinstance(value, str):
+            return None
+        try:
+            return int(datetime.strptime(value, "%I:%M %p on %d %B, %Y").replace(tzinfo=UTC).timestamp() * 1000)
+        except ValueError:
+            return None
+
+    def load(self, path: str | Path) -> list[BenchmarkCase]:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+        if not isinstance(raw, list):
+            raise ValueError("LoCoMo input must be an array")
+        cases: list[BenchmarkCase] = []
+        for item_index, item in enumerate(raw):
+            if not isinstance(item, dict) or not isinstance(item.get("conversation"), dict) or not isinstance(item.get("qa"), list):
+                raise ValueError("LoCoMo record is missing conversation or qa")
+            conversation = item["conversation"]
+            speaker_a = conversation.get("speaker_a")
+            if not isinstance(speaker_a, str):
+                raise ValueError("LoCoMo conversation is missing speaker_a")
+            messages: list[dict[str, Any]] = []
+            for session_number in range(1, 36):
+                session = conversation.get(f"session_{session_number}")
+                if session is None:
+                    continue
+                if not isinstance(session, list):
+                    raise ValueError("LoCoMo session must be a turn array")
+                timestamp = self._timestamp(conversation.get(f"session_{session_number}_date_time"))
+                for turn_index, turn in enumerate(session):
+                    if not isinstance(turn, dict) or not isinstance(turn.get("text"), str) or not isinstance(turn.get("speaker"), str):
+                        raise ValueError("LoCoMo turn must contain speaker and text")
+                    messages.append({"source_id": str(turn.get("dia_id", f"s{session_number}:{turn_index}")),
+                        "role": "user" if turn["speaker"] == speaker_a else "assistant", "content": turn["text"],
+                        "timestamp": timestamp, "session_id": f"session-{session_number}"})
+            user_id = str(item.get("sample_id", f"locomo-{item_index}"))
+            for question_index, question in enumerate(item["qa"]):
+                if not isinstance(question, dict) or not isinstance(question.get("question"), str) or not isinstance(question.get("answer"), str):
+                    raise ValueError("LoCoMo question must contain question and answer")
+                cases.append(BenchmarkCase(case_id=f"{user_id}:{question_index}", user_id=user_id,
+                    session_id=user_id, messages=messages, query=question["question"], answer=question["answer"],
+                    evidence_source_ids=[str(value) for value in question.get("evidence", []) if isinstance(value, str)],
+                    category=str(question.get("category", "unknown"))))
+        return cases
+
+
 class PersonaMemV2Adapter(PublicDatasetAdapter): name = "personamem_v2"
 class LongMemEvalAdapter(PublicDatasetAdapter):
     """Adapter for the official LongMemEval-S/M session schema.

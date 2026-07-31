@@ -28,9 +28,10 @@ class BenchmarkTests(unittest.TestCase):
     def test_adapter_normalizes_conversation_and_questions(self):
         with TemporaryDirectory() as root:
             path = Path(root) / "locomo.json"
-            path.write_text(json.dumps([{"conversation_id": "c1", "conversation": [{"id": "t1", "role": "user", "content": "Bag is in car"}], "qa": [{"id": "q1", "question": "where", "answer": "car", "evidence": ["t1"]}]}]), encoding="utf-8")
+            path.write_text(json.dumps([{"sample_id": "c1", "conversation": {"speaker_a": "Alice", "speaker_b": "Bob", "session_1_date_time": "1:56 pm on 08 May, 2023", "session_1": [{"dia_id": "D1:1", "speaker": "Alice", "text": "Bag is in car"}]}, "qa": [{"question": "where", "answer": "car", "evidence": ["D1:1"], "category": 2}]}]), encoding="utf-8")
             cases = LoCoMoAdapter().load(path)
-            self.assertEqual((cases[0].case_id, cases[0].messages[0]["source_id"]), ("q1", "t1"))
+            self.assertEqual((cases[0].case_id, cases[0].messages[0]["source_id"]), ("c1:0", "D1:1"))
+            self.assertEqual(cases[0].messages[0]["timestamp"], 1683554160000)
 
     def test_harness_writes_replayable_results_and_paired_report(self):
         with TemporaryDirectory() as root:
