@@ -175,6 +175,19 @@ class PersonaMemV2Adapter(PublicDatasetAdapter):
         except json.JSONDecodeError:
             return ast.literal_eval(value)
 
+    @staticmethod
+    def _history_path(csv_path: Path, value: str) -> Path:
+        """Resolve both dataset-root and CSV-relative official link layouts."""
+
+        candidate = Path(value)
+        if candidate.is_absolute():
+            return candidate
+        for base in (csv_path.parent, *csv_path.parents):
+            resolved = base / candidate
+            if resolved.is_file():
+                return resolved
+        raise FileNotFoundError(f"PersonaMem-v2 history file does not exist: {value}")
+
     def load(self, path: str | Path) -> list[BenchmarkCase]:
         csv_path = Path(path)
         cases: list[BenchmarkCase] = []
@@ -192,7 +205,7 @@ class PersonaMemV2Adapter(PublicDatasetAdapter):
                 try:
                     history = self._decode(history_value)
                 except (ValueError, SyntaxError):
-                    history_path = (csv_path.parent / history_value).resolve()
+                    history_path = self._history_path(csv_path, history_value)
                     history = json.loads(history_path.read_text(encoding="utf-8"))
                 if isinstance(history, dict):
                     history = history.get("conversations", [])

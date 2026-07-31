@@ -92,5 +92,21 @@ class BenchmarkTests(unittest.TestCase):
             case = PersonaMemV2Adapter().load(path)[0]
             self.assertEqual((case.user_id, case.query, case.options), ("personamem:7", "What should I cook?", ["pasta", "salad"]))
 
+    def test_personamem_adapter_resolves_dataset_root_history_paths(self):
+        with TemporaryDirectory() as root:
+            root_path = Path(root)
+            (root_path / "history").mkdir()
+            (root_path / "history" / "p1.json").write_text('[{"role": "user", "content": "I like pasta"}]', encoding="utf-8")
+            benchmark = root_path / "benchmark" / "multimodal"
+            benchmark.mkdir(parents=True)
+            path = benchmark / "benchmark.csv"
+            path.write_text(
+                "persona_id,user_query,correct_answer,incorrect_answers,chat_history_32k_link,pref_type\n"
+                '7,"{""role"": ""user"", ""content"": ""What should I cook?""}",pasta,"[""salad""]",history/p1.json,food\n',
+                encoding="utf-8",
+            )
+            case = PersonaMemV2Adapter().load(path)[0]
+            self.assertEqual(case.messages[0]["content"], "I like pasta")
+
 
 if __name__ == "__main__": unittest.main()
