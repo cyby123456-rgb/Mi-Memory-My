@@ -14,7 +14,7 @@ or endpoint settings.
 | Sec. 6; App. E | D2ACCI hypothesis, aligned paired outputs, six-step review artifacts | `diagnostics.py`, `benchmarks.py` | Implemented: six-stage aligned artifact, append-only ledger and category-level root-cause roll-up |
 | App. F Alg. 2--3, Table 28, Eq. 19 | E2MEND Observe/Improve/Verify, five gates, Critic, UCB1, pending champion, drift rollback | `evolution.py`, `strategy.py` | Implemented: typed/versioned prompt mutations, hard integrity gate, candidate and dimension history, UCB1 scoring, pending champions and drift rollback |
 | Sec. 7; App. G Eq. 20--21, Alg. 4 | File-native router, lazy daily reads, style/profile priority, decay, idle consolidation, atomic index, Git | `storage.py`, `lifecycle.py`, `git_provenance.py` | Implemented: Eq. 20/21 scoring terms, singleton style/profile, correction file, line-window router, priority injection, markers, atomic index and Git hook |
-| Sec. 8; App. H | Unified benchmark adapters, traces, paired non-regression reports, resource accounting | `benchmarks.py`, `scripts/run_public_benchmark.py` | Fixed-config public runner emits answer-exact-match diagnostics, resource ledger and category report; upstream official scorers remain required for published scores |
+| Sec. 8; App. H | Unified benchmark adapters, traces, paired non-regression reports, resource accounting | `benchmarks.py`, `scripts/run_public_benchmark.py` | Fixed-config public runner emits primary-correctness diagnostics, resource ledger and category report; upstream official scorers remain required for published scores |
 | API Guide | Synchronous Add/Search, user isolation, exact response contracts | `leaderboard.py` | Implemented; paper runtime selectable |
 
 ## Explicit Non-Claims
@@ -23,5 +23,5 @@ or endpoint settings.
   endpoints are not public and cannot be reconstructed faithfully.
 - No paper score is claimed until a separate approved benchmark run produces a
   configuration, trace set, and paired report.
-- The generic runner's `answer_exact_match` is an audit metric, not an official
+- The generic runner's `primary_correctness` is an audit metric, not an official
   LoCoMo, PersonaMem-v2, or LongMemEval leaderboard score.

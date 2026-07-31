@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from mimemory.benchmarks import BenchmarkCase, BenchmarkHarness, LoCoMoAdapter, LongMemEvalAdapter, PersonaMemV2Adapter
+from mimemory.benchmarks import BenchmarkCase, BenchmarkHarness, LoCoMoAdapter, LongMemEvalAdapter, PersonaMemV2Adapter, case_correct
 from mimemory.config import default_strategy
 from mimemory.memstack import MemStackModels, MemStackRuntime
 from mimemory.storage import LiteMemStore
@@ -32,6 +32,14 @@ class BenchmarkTests(unittest.TestCase):
             cases = LoCoMoAdapter().load(path)
             self.assertEqual((cases[0].case_id, cases[0].messages[0]["source_id"]), ("c1:0", "D1:1"))
             self.assertEqual(cases[0].messages[0]["timestamp"], 1683554160000)
+
+    def test_locomo_adapter_preserves_numeric_and_adversarial_questions(self):
+        with TemporaryDirectory() as root:
+            path = Path(root) / "locomo.json"
+            path.write_text(json.dumps([{"sample_id": "c1", "conversation": {"speaker_a": "Alice", "session_1_date_time": "1:56 pm on 08 May, 2023", "session_1": [{"dia_id": "D1:1", "speaker": "Alice", "text": "Bag is in car"}]}, "qa": [{"question": "When?", "answer": 2022, "category": 2}, {"question": "What unsupported fact?", "category": 5, "adversarial_answer": "made up"}]}]), encoding="utf-8")
+            cases = LoCoMoAdapter().load(path)
+            self.assertEqual((cases[0].answer, cases[1].answer, cases[1].category), ("2022", "", "5"))
+            self.assertTrue(case_correct(cases[1], "The detail is not mentioned in the conversation."))
 
     def test_harness_writes_replayable_results_and_paired_report(self):
         with TemporaryDirectory() as root:

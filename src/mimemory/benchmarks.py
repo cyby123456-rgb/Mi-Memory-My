@@ -155,12 +155,18 @@ class LoCoMoAdapter(PublicDatasetAdapter):
                         "timestamp": timestamp, "session_id": f"session-{session_number}"})
             user_id = str(item.get("sample_id", f"locomo-{item_index}"))
             for question_index, question in enumerate(item["qa"]):
-                if not isinstance(question, dict) or not isinstance(question.get("question"), str) or not isinstance(question.get("answer"), str):
-                    raise ValueError("LoCoMo question must contain question and answer")
+                if not isinstance(question, dict) or not isinstance(question.get("question"), str):
+                    raise ValueError("LoCoMo question must contain a question")
+                category = str(question.get("category", "unknown"))
+                answer = question.get("answer")
+                # Category 5 is judged by an abstention phrase upstream and has
+                # no ordinary gold-answer field in the released export.
+                if answer is None and category != "5":
+                    raise ValueError("non-adversarial LoCoMo question is missing answer")
                 cases.append(BenchmarkCase(case_id=f"{user_id}:{question_index}", user_id=user_id,
-                    session_id=user_id, messages=messages, query=question["question"], answer=question["answer"],
+                    session_id=user_id, messages=messages, query=question["question"], answer="" if answer is None else str(answer),
                     evidence_source_ids=[str(value) for value in question.get("evidence", []) if isinstance(value, str)],
-                    category=str(question.get("category", "unknown"))))
+                    category=category))
         return cases
 
 
@@ -289,6 +295,15 @@ def normalize_answer(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip().casefold())
 
 
+def case_correct(case: BenchmarkCase, predicted: str) -> bool:
+    """Apply the released LoCoMo category-5 abstention rule when applicable."""
+
+    if case.category == "5" and not case.answer:
+        normalized = predicted.casefold()
+        return "no information available" in normalized or "not mentioned" in normalized
+    return normalize_answer(predicted) == normalize_answer(case.answer)
+
+
 class BenchmarkHarness:
     def __init__(self, runtime: MemStackRuntime, answerer: AnswerProvider, classifier: AnswerProvider) -> None:
         self.runtime = runtime
@@ -311,7 +326,7 @@ class BenchmarkHarness:
             answer_prompt = {"question": case.query, "options": case.options, "evidence": context.text, "instruction": "Answer only from evidence. Return the answer directly."}
             predicted = self.answerer.complete([{"role": "user", "content": str(answer_prompt)}], temperature=0.0).strip()
             diagnostic = layer_a_diagnose(case.case_id, case.query, case.answer, case.evidence_source_ids, stored, [hit.record for hit in context.evidence], self.classifier)
-            results.append(CaseResult(case.case_id, predicted, case.answer, normalize_answer(predicted) == normalize_answer(case.answer), [hit.record.id for hit in context.evidence], context.trace.query_id, diagnostic.to_dict()))
+            results.append(CaseResult(case.case_id, predicted, case.answer, case_correct(case, predicted), [hit.record.id for hit in context.evidence], context.trace.query_id, diagnostic.to_dict()))
             resources.append(ResourceLedger(case.case_id, round(time.monotonic() - started, 6), len(stored), len(context.evidence)))
         if output_path:
             path = Path(output_path); path.parent.mkdir(parents=True, exist_ok=True)
@@ -340,9 +355,9 @@ class BenchmarkHarness:
             grouped.setdefault(category_map.get(row.case_id, "unknown"), []).append(row)
         return {
             "cases": len(rows),
-            "answer_exact_match": sum(row.correct for row in rows) / len(rows) if rows else 0.0,
+            "primary_correctness": sum(row.correct for row in rows) / len(rows) if rows else 0.0,
             "categories": {
-                name: {"cases": len(items), "answer_exact_match": sum(item.correct for item in items) / len(items) if items else 0.0}
+                name: {"cases": len(items), "primary_correctness": sum(item.correct for item in items) / len(items) if items else 0.0}
                 for name, items in sorted(grouped.items())
             },
             "diagnostics": {

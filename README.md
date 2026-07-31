@@ -174,7 +174,7 @@ The suite covers persistence, index recovery, active/inactive filtering, raw log
 `scripts/run_public_benchmark.py` uses the released LoCoMo, PersonaMem-v2, or
 LongMemEval export with one fixed `default_strategy` configuration. It emits an
 ignored run directory containing replay identifiers, predictions, D2ACCI
-diagnostics, resource timings, and a category-level answer exact-match report.
+diagnostics, resource timings, and a category-level primary-correctness report.
 It never searches parameter settings using held-out answers or evidence labels.
 This is an auditable diagnostic metric, not a substitute for each benchmark's
 official scorer.
