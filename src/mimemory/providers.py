@@ -32,6 +32,7 @@ class Endpoint:
     base_url: str
     api_key: str
     model: str
+    json_mode: bool = False
 
     @classmethod
     def from_environment(cls, prefix: str) -> "Endpoint":
@@ -41,7 +42,7 @@ class Endpoint:
         missing = [name for name, value in (("API_KEY", key), ("API_BASE", base), ("MODEL", model)) if not value]
         if missing:
             raise ProviderConfigurationError(f"{prefix} is missing {', '.join(missing)}")
-        return cls(base.rstrip("/"), key, model)
+        return cls(base.rstrip("/"), key, model, os.getenv(f"{prefix}_JSON_MODE") == "1")
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,9 +111,14 @@ class OpenAICompatibleClient:
         return value
 
     def complete(self, messages: list[dict[str, Any]], *, model: str | None = None, temperature: float = 0.0) -> str:
+        payload: dict[str, Any] = {"model": model or self.endpoint.model, "messages": messages, "temperature": temperature}
+        if self.endpoint.json_mode:
+            # OpenAI-compatible JSON mode constrains transport syntax; semantic
+            # contracts are still validated by the consuming runtime.
+            payload["response_format"] = {"type": "json_object"}
         value = self._post(
             "/chat/completions",
-            {"model": model or self.endpoint.model, "messages": messages, "temperature": temperature},
+            payload,
         )
         try:
             content = value["choices"][0]["message"]["content"]

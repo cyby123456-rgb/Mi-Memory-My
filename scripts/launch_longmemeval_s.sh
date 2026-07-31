@@ -6,6 +6,8 @@ set -a
 source .env
 set +a
 export MIMEMORY_LIVE_PROVIDER_APPROVED=1
+export OPENAI_JSON_MODE=1
+export EVALUATOR_JSON_MODE=1
 export PYTHONDONTWRITEBYTECODE=1
 export PYTHONPATH=src
 exec /Users/cyby/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 \

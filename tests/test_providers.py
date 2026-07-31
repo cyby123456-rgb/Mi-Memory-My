@@ -50,6 +50,12 @@ class ProviderConfigurationTests(unittest.TestCase):
             with self.assertRaises(RemoteCallNotApproved):
                 OpenAICompatibleClient(endpoint).complete([{"role": "user", "content": "test"}])
 
+    def test_json_mode_requests_transport_level_json(self) -> None:
+        client = OpenAICompatibleClient(Endpoint("https://provider.example/v1", "test-key", "test-model", json_mode=True))
+        with patch.object(client, "_post", return_value={"choices": [{"message": {"content": "{}"}}]}) as post:
+            client.complete([{"role": "user", "content": "test"}])
+        self.assertEqual(post.call_args.args[1]["response_format"], {"type": "json_object"})
+
 
 if __name__ == "__main__":
     unittest.main()
