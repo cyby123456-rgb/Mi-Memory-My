@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from mimemory.leaderboard import ContractError, LeaderboardAdapter, create_leaderboard_server
+from mimemory.leaderboard import ContractError, LeaderboardAdapter, PaperLeaderboardAdapter, create_leaderboard_server
 
 
 class LeaderboardAdapterTests(unittest.TestCase):
@@ -111,6 +111,13 @@ class LeaderboardAdapterTests(unittest.TestCase):
         self.assertIn(self.adapter.registry.scope_path("old-user").name, removed)
         self.assertFalse(self.adapter.registry.scope_path("old-user").exists())
         self.assertTrue(self.adapter.registry.scope_path("new-user").exists())
+
+
+class PaperLeaderboardAdapterConcurrencyTests(unittest.TestCase):
+    def test_locks_are_shared_only_within_one_user_scope(self) -> None:
+        adapter = PaperLeaderboardAdapter(lambda _user_id: None)
+        self.assertIs(adapter._lock_for("user-a"), adapter._lock_for("user-a"))
+        self.assertIsNot(adapter._lock_for("user-a"), adapter._lock_for("user-b"))
 
 
 class LeaderboardHTTPTests(unittest.TestCase):

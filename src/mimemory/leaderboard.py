@@ -252,12 +252,18 @@ class PaperLeaderboardAdapter:
     def __init__(self, runtime_factory: Any) -> None:
         self.runtime_factory = runtime_factory
         self._runtimes: dict[str, MemStackRuntime] = {}
-        self._lock = threading.RLock()
+        self._locks: dict[str, threading.RLock] = {}
+        self._registry_lock = threading.RLock()
 
     def _runtime(self, user_id: str) -> MemStackRuntime:
         if user_id not in self._runtimes:
             self._runtimes[user_id] = self.runtime_factory(user_id)
         return self._runtimes[user_id]
+
+    def _lock_for(self, user_id: str) -> threading.RLock:
+        """Serialize one user's memory history without blocking other users."""
+        with self._registry_lock:
+            return self._locks.setdefault(user_id, threading.RLock())
 
     def add(self, payload: dict[str, Any]) -> dict[str, Any]:
         request_id = _required_string(payload, "request_id")
@@ -277,7 +283,7 @@ class PaperLeaderboardAdapter:
             normalized.append({"source_id": f"{request_id}:{index}", "role": role, "content": content, "timestamp": _timestamp_from_milliseconds(message.get("timestamp"))})
         canonical = json.dumps({"session_id": session_id, "messages": normalized}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         payload_digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-        with self._lock:
+        with self._lock_for(user_id):
             runtime = self._runtime(user_id)
             receipt = runtime.store.root / "requests" / f"{hashlib.sha256(request_id.encode()).hexdigest()}.json"
             if receipt.exists():
@@ -300,7 +306,7 @@ class PaperLeaderboardAdapter:
             options = []
         if not isinstance(options, list) or any(not isinstance(item, str) for item in options):
             raise ContractError("options must be an array of strings")
-        with self._lock:
+        with self._lock_for(user_id):
             bundle = self._runtime(user_id).retrieve(query + ("\n" + "\n".join(options) if options else ""), user_id=user_id)
         return {"data": [{"id": hit.record.id, "content": hit.record.content, "score": hit.score, "created_at": hit.record.created_at} for hit in bundle.evidence[:top_k]]}
 
